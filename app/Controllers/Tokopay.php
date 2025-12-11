@@ -52,7 +52,7 @@ class Tokopay extends Controller
                 }
                 $this->write("DB Instance 2000 obtained.");
 
-                $cek_target_query = $db_instance->get_where("tokopay", ["ref_id" => $reff_id]);
+                $cek_target_query = $db_instance->get_where("wh_tokopay", ["ref_id" => $reff_id]);
                 if (!$cek_target_query) {
                      $this->write("Error: Query object is null after get_where");
                      return;
