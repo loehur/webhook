@@ -23,14 +23,14 @@ class Tokopay extends Controller
         $reff_id = isset($data['reff_id']) ? $data['reff_id'] : '';
         $signature_provided = isset($data['signature']) ? $data['signature'] : '';
         
-        if (empty($ref_id) || empty($signature_provided)) {
+        if (empty($reff_id) || empty($signature_provided)) {
              echo json_encode(['status' => false, 'message' => 'Missing parameter']);
              $this->write("Error: Missing parameter");
              return;
         }
 
-        // Validate Signature: md5(merchant_id:secret:ref_id)
-        $signature_generated = md5($merchant_id . ':' . $secret . ':' . $ref_id);
+        // Validate Signature: md5(merchant_id:secret:reff_id)
+        $signature_generated = md5($merchant_id . ':' . $secret . ':' . $reff_id);
 
         if ($signature_provided !== $signature_generated) {
             echo json_encode(['status' => false, 'message' => 'Invalid Signature']);
