@@ -13,14 +13,14 @@ class DBC
 
         // 1 untuk laundry, sisanya tahun buku laundry
         12025 => [
-            "db" => "laundry_2025",
-            "user" => "laundry_2025",
+            "db" => "londri_2025",
+            "user" => "londri_2025",
             "pass" => "123654Na"
         ],
 
         12026 => [
-            "db" => "laundry_2026",
-            "user" => "laundry_2026",
+            "db" => "londri_2026",
+            "user" => "londri_2026",
             "pass" => "123654Na"
         ]
     ];
