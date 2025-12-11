@@ -52,6 +52,8 @@ class Tokopay extends Controller
                     }
                 }
             }
+        }else{
+            $this->write("Error: Invalid Status. Status: $status. Ref ID: $reff_id");
         }
         
         $this->write("Signature Valid. Status: $status. Ref ID: $reff_id");
