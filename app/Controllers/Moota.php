@@ -154,8 +154,6 @@ class Moota extends Controller
                             "wh_moota",
                             [
                                 "state" => $status,
-                                "mutation_id" => $mutation_id,
-                                "amount" => $amount,
                                 "updated_at" => date('Y-m-d H:i:s')
                             ],
                             ["trx_id" => $order_id]
@@ -217,30 +215,33 @@ class Moota extends Controller
                     return;
                 }
 
-                $db_target_name = "1" . $book;
-                $this->write("Updating kas in DB: " . $db_target_name);
+                $i = 2021;
+                while ($i <= $book) {
+                    $db_target_name = "1" . $i;
+                    $this->write("Updating kas in DB: " . $db_target_name);
 
-                try {
-                    $db_update_instance = $this->db($db_target_name);
-                    if (!$db_update_instance) {
-                        $this->write("Error: Failed to get DB instance $db_target_name");
-                        return;
+                    try {
+                        $db_update_instance = $this->db($db_target_name);
+                        if (!$db_update_instance) {
+                            $this->write("Error: Failed to get DB instance $db_target_name");
+                            continue;
+                        }
+
+                        // Status sukses = status_mutasi 3
+                        $update = $db_update_instance->update(
+                            "kas",
+                            ["status_mutasi" => 3],
+                            ["ref_finance" => $order_id]
+                        );
+
+                        if (!$update) {
+                            $this->write("Error: Failed to update kas. Order ID: $order_id");
+                        } else {
+                            $this->write("Success: Updated kas status_mutasi to 3 for Order ID: $order_id");
+                        }
+                    } catch (Exception $e) {
+                        $this->write("Exception during kas Update: " . $e->getMessage());
                     }
-
-                    // Status sukses = status_mutasi 3
-                    $update = $db_update_instance->update(
-                        "kas",
-                        ["status_mutasi" => 3],
-                        ["ref_finance" => $order_id]
-                    );
-
-                    if (!$update) {
-                        $this->write("Error: Failed to update kas. Order ID: $order_id");
-                    } else {
-                        $this->write("Success: Updated kas status_mutasi to 3 for Order ID: $order_id");
-                    }
-                } catch (Exception $e) {
-                    $this->write("Exception during kas Update: " . $e->getMessage());
                 }
             }
         }
