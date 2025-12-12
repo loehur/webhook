@@ -218,6 +218,7 @@ class Moota extends Controller
                 $i = 2021;
                 while ($i <= $book) {
                     $db_target_name = "1" . $i;
+                    $i++;
                     $this->write("Updating kas in DB: " . $db_target_name);
 
                     try {
