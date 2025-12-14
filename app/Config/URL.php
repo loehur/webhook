@@ -8,4 +8,7 @@ class URL
 
     // Moota Configuration
     const MOOTA_USER = 'epokOBKvWaJ';           // Ganti dengan X-MOOTA-USER yang sebenarnya
+    const MOOTA_SECRET = 'rpNfmLhL';         // Ganti dengan X-MOOTA-SECRET yang sebenarnya
+
+    const MIDTRANS_SERVER_KEY = 'your_midtrans_server_key_here';
 }

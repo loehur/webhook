@@ -20,12 +20,12 @@ class Moota extends Controller
         $json = file_get_contents('php://input');
 
         // Logging incoming request
-        $this->write("========== NEW REQUEST ==========");
-        $this->write("Incoming Request: " . $json);
+        LogHelper::write("========== NEW REQUEST ==========", 'moota');
+        LogHelper::write("Incoming Request: " . $json, 'moota');
 
         // Get headers
         $headers = $this->getRequestHeaders();
-        $this->write("Headers: " . json_encode($headers));
+        LogHelper::write("Headers: " . json_encode($headers), 'moota');
 
         // Validate required headers
         $moota_user = isset($headers['X-MOOTA-USER']) ? $headers['X-MOOTA-USER'] : '';
@@ -33,14 +33,14 @@ class Moota extends Controller
         $user_agent = isset($headers['User-Agent']) ? $headers['User-Agent'] : '';
         $signature_provided = isset($headers['Signature']) ? $headers['Signature'] : '';
 
-        $this->write("X-MOOTA-USER: $moota_user");
-        $this->write("X-MOOTA-WEBHOOK: $moota_webhook");
-        $this->write("User-Agent: $user_agent");
-        $this->write("Signature: $signature_provided");
+        LogHelper::write("X-MOOTA-USER: $moota_user", 'moota');
+        LogHelper::write("X-MOOTA-WEBHOOK: $moota_webhook", 'moota');
+        LogHelper::write("User-Agent: $user_agent", 'moota');
+        LogHelper::write("Signature: $signature_provided", 'moota');
 
         // Validate User-Agent (harus MootaBot)
         if (strpos($user_agent, 'MootaBot') === false) {
-            $this->write("Error: Invalid User-Agent. Expected MootaBot, got: $user_agent");
+            LogHelper::write("Error: Invalid User-Agent. Expected MootaBot, got: $user_agent", 'moota');
             echo json_encode(['status' => false, 'message' => 'Invalid User-Agent']);
             return;
         }
@@ -48,42 +48,34 @@ class Moota extends Controller
         // Validate X-MOOTA-USER
         $expected_moota_user = URL::MOOTA_USER;
         if ($moota_user !== $expected_moota_user) {
-            $this->write("Error: Invalid X-MOOTA-USER. Expected: $expected_moota_user, got: $moota_user");
+            LogHelper::write("Error: Invalid X-MOOTA-USER. Expected: $expected_moota_user, got: $moota_user", 'moota');
             echo json_encode(['status' => false, 'message' => 'Invalid Moota User']);
             return;
         }
 
-        // // Validate X-MOOTA-WEBHOOK
-        // $expected_moota_webhook = URL::MOOTA_WEBHOOK;
-        // if ($moota_webhook !== $expected_moota_webhook) {
-        //     $this->write("Error: Invalid X-MOOTA-WEBHOOK. Expected: $expected_moota_webhook, got: $moota_webhook");
-        //     echo json_encode(['status' => false, 'message' => 'Invalid Moota Webhook']);
-        //     return;
-        // }
+        // Validate Signature using HMAC SHA256
+        $secret = URL::MOOTA_SECRET;
+        $signature_generated = hash_hmac('sha256', $json, $secret);
 
-        // // Validate Signature using HMAC SHA256
-        // $secret = URL::MOOTA_SECRET;
-        // $signature_generated = hash_hmac('sha256', $json, $secret);
+        if ($signature_provided !== $signature_generated) {
+            LogHelper::write("Error: Invalid Signature. Provided: $signature_provided, Generated: $signature_generated", 'moota');
+            echo json_encode(['status' => false, 'message' => 'Invalid Signature']);
+            return;
+        }
 
-        // if ($signature_provided !== $signature_generated) {
-        //     $this->write("Error: Invalid Signature. Provided: $signature_provided, Generated: $signature_generated");
-        //     echo json_encode(['status' => false, 'message' => 'Invalid Signature']);
-        //     return;
-        // }
-
-        $this->write("Signature Valid!");
+        LogHelper::write("Signature Valid!", 'moota');
 
         $data = json_decode($json, true);
 
         if (!$data) {
-            $this->write("Error: Invalid JSON received");
+            LogHelper::write("Error: Invalid JSON received", 'moota');
             echo json_encode(['status' => false, 'message' => 'Invalid JSON']);
             return;
         }
 
         // Moota mengirim array mutasi
         if (!is_array($data)) {
-            $this->write("Error: Data is not an array");
+            LogHelper::write("Error: Data is not an array", 'moota');
             echo json_encode(['status' => false, 'message' => 'Invalid data format']);
             return;
         }
@@ -94,97 +86,116 @@ class Moota extends Controller
 
         // Loop through each mutation
         foreach ($data as $index => $mutation) {
-            $this->write("--- Processing mutation index: $index ---");
-
-            // Ambil payment_detail jika ada
-            $payment_detail = isset($mutation['payment_detail']) ? $mutation['payment_detail'] : null;
-
-            if (!$payment_detail) {
-                $this->write("Skip: No payment_detail found in mutation index $index");
-                continue;
-            }
-
-            $order_id = isset($payment_detail['order_id']) ? $payment_detail['order_id'] : '';
-            $status = isset($payment_detail['status']) ? $payment_detail['status'] : '';
-            $trx_id = isset($payment_detail['trx_id']) ? $payment_detail['trx_id'] : '';
-            $amount = isset($mutation['amount']) ? $mutation['amount'] : 0;
-            $mutation_id = isset($mutation['mutation_id']) ? $mutation['mutation_id'] : '';
-
-            $this->write("Order ID: $order_id");
-            $this->write("Status: $status");
-            $this->write("Trx ID: $trx_id");
-            $this->write("Amount: $amount");
-            $this->write("Mutation ID: $mutation_id");
-
-            // Skip jika order_id kosong
-            if (empty($order_id)) {
-                $this->write("Skip: order_id is empty in mutation index $index");
-                continue;
-            }
-
             $processed_count++;
 
-            // Cari di tabel wh_moota berdasarkan order_id = trx_id
+            LogHelper::write("--- Processing mutation index: $index ---", 'moota');
+
+            if (isset($mutation['amount']) && isset($mutation['type']) && isset($mutation['bank_id'])) {
+                LogHelper::write("Mutation Amount: " . $mutation['amount'], 'moota');
+                LogHelper::write("Mutation Type: " . $mutation['type'], 'moota');
+                LogHelper::write("Mutation Bank ID: " . $mutation['bank_id'], 'moota');
+            } else {
+                LogHelper::write("Error: Missing required mutation fields in index $index", 'moota');
+                $error_count++;
+                continue;
+            }
+
+            $amount = $mutation['amount'];
+            $type = $mutation['type'];
+            $bank_id = $mutation['bank_id'];
+
+            if ($type !== 'CR') {
+                LogHelper::write("Skip: Mutation type is not 'CR' in index $index", 'moota');
+                continue;
+            }
+
+            //PASTIKAN BANK ID, NOMINAL, DAN STATE PENDING ADA DAN HANYA ADA SATU DI WH MOOTA
             try {
                 $db_instance = $this->db(2000);
                 if (!$db_instance) {
-                    $this->write("Error: Failed to get DB instance 2000");
+                    LogHelper::write("Error: Failed to get DB instance 2000", 'moota');
                     $error_count++;
                     continue;
                 }
-                $this->write("DB Instance 2000 obtained.");
+                LogHelper::write("DB Instance 2000 obtained.", 'moota');
 
-                // Cari record di wh_moota dimana trx_id = order_id dari webhook
-                $cek_target_query = $db_instance->get_where("wh_moota", ["trx_id" => $order_id]);
+                $cek_pending_query = $db_instance->get_where("wh_moota", [
+                    "bank_id" => $bank_id,
+                    "amount" => $amount,
+                    "state" => "PENDING"
+                ]);
 
-                if (!$cek_target_query) {
-                    $this->write("Error: Query object is null after get_where");
+                if (!$cek_pending_query) {
+                    LogHelper::write("Error: Query object is null after get_where for pending check", 'moota');
                     $error_count++;
                     continue;
                 }
 
-                $cek_target = $cek_target_query->row();
+                $pending_count = $cek_pending_query->num_rows();
 
-                if ($cek_target) {
-                    $this->write("Record found in wh_moota. Current state: " . $cek_target->state);
+                if ($pending_count != 1) {
+                    LogHelper::write("Skip: Expected 1 pending record, found $pending_count for bank_id: $bank_id, amount: $amount", 'moota');
 
-                    // Update state dengan status dari moota
-                    try {
-                        $update = $db_instance->update(
-                            "wh_moota",
-                            [
-                                "state" => $status,
-                                "updated_at" => date('Y-m-d H:i:s')
-                            ],
-                            ["trx_id" => $order_id]
-                        );
+                    $update_conflict = $db_instance->update(
+                        "wh_moota",
+                        [
+                            "conflict" => 1,
+                            "updated_at" => date('Y-m-d H:i:s')
+                        ],
+                        [
+                            "bank_id" => $bank_id,
+                            "amount" => $amount,
+                            "state" => "PENDING"
+                        ]
+                    );
 
-                        if (!$update) {
-                            $this->write("Error: Failed to update wh_moota. Order ID: $order_id");
-                            $error_count++;
-                        } else {
-                            $this->write("Success: Updated wh_moota state to '$status' for Order ID: $order_id");
-                            $success_count++;
-
-                            // Proses tambahan jika ada target tertentu
-                            $this->processTarget($cek_target, $status, $order_id);
-                        }
-                    } catch (Exception $e) {
-                        $this->write("Exception during Update: " . $e->getMessage());
+                    if ($update_conflict) {
+                        LogHelper::write("Conflict flag set for bank_id: $bank_id, amount: $amount", 'moota');
+                    } else {
+                        LogHelper::write("Failed to set conflict flag for bank_id: $bank_id, amount: $amount", 'moota');
                         $error_count++;
                     }
+
+                    continue;
                 } else {
-                    $this->write("Warning: No record found in wh_moota for Order ID: $order_id");
-                    $error_count++;
+                    LogHelper::write("Pending record found for bank_id: $bank_id, amount: $amount", 'moota');
+                    //UPDATE STATE PENDING JADI PAID
+                    $update = $db_instance->update(
+                        "wh_moota",
+                        [
+                            "state" => "PAID",
+                            "updated_at" => date('Y-m-d H:i:s')
+                        ],
+                        [
+                            "bank_id" => $bank_id,
+                            "amount" => $amount,
+                            "state" => "PENDING"
+                        ]
+                    );
+
+                    if ($update) {
+                        LogHelper::write("Updated state to PAID for bank_id: $bank_id, amount: $amount", 'moota');
+                        //UPDATE KAS JADI STATUS_MUTASI 3 DENGAN REF_FINANCE DARI wh_moota
+                        $pending_record = $cek_pending_query->row();
+                        $this->processTarget($pending_record, 'PAID', $pending_record->trx_id);
+                    } else {
+                        LogHelper::write("Failed to update state to PAID for bank_id: $bank_id, amount: $amount", 'moota');
+                        $error_count++;
+                        continue;
+                    }
                 }
+                LogHelper::write("Pending record check passed for bank_id: $bank_id, amount: $amount", 'moota');
             } catch (Exception $e) {
-                $this->write("Exception during DB lookup: " . $e->getMessage());
+                LogHelper::write("Exception during pending record check: " . $e->getMessage(), 'moota');
                 $error_count++;
+                continue;
             }
+
+            $success_count++;
         }
 
-        $this->write("========== END REQUEST ==========");
-        $this->write("Processed: $processed_count, Success: $success_count, Error: $error_count");
+        LogHelper::write("========== END REQUEST ==========", 'moota');
+        LogHelper::write("Processed: $processed_count, Success: $success_count, Error: $error_count", 'moota');
 
         echo json_encode([
             'status' => true,
@@ -205,13 +216,13 @@ class Moota extends Controller
             $target = $record->target;
             $book = $record->book;
 
-            $this->write("Processing target: $target, book: $book");
+            LogHelper::write("Processing target: $target, book: $book", 'moota');
 
             if ($target == "kas_laundry") {
                 // Hanya update kas_laundry jika status sukses
                 $status_lower = strtolower($status);
                 if (!in_array($status_lower, ['success', 'completed', 'paid'])) {
-                    $this->write("Skip: Status '$status' bukan status sukses, tidak update kas_laundry");
+                    LogHelper::write("Skip: Status '$status' bukan status sukses, tidak update kas_laundry", 'moota');
                     return;
                 }
 
@@ -219,12 +230,12 @@ class Moota extends Controller
                 while ($i <= $book) {
                     $db_target_name = "1" . $i;
                     $i++;
-                    $this->write("Updating kas in DB: " . $db_target_name);
+                    LogHelper::write("Updating kas in DB: " . $db_target_name, 'moota');
 
                     try {
                         $db_update_instance = $this->db($db_target_name);
                         if (!$db_update_instance) {
-                            $this->write("Error: Failed to get DB instance $db_target_name");
+                            LogHelper::write("Error: Failed to get DB instance $db_target_name", 'moota');
                             continue;
                         }
 
@@ -236,35 +247,18 @@ class Moota extends Controller
                         );
 
                         if (!$update) {
-                            $this->write("Error: Failed to update kas. Order ID: $order_id");
+                            LogHelper::write("Error: Failed to update kas. Order ID: $order_id", 'moota');
                         } else {
-                            $this->write("Success: Updated kas status_mutasi to 3 for Order ID: $order_id");
+                            LogHelper::write("Success: Updated kas status_mutasi to 3 for Order ID: $order_id", 'moota');
                         }
                     } catch (Exception $e) {
-                        $this->write("Exception during kas Update: " . $e->getMessage());
+                        LogHelper::write("Exception during kas Update: " . $e->getMessage(), 'moota');
                     }
                 }
+            } else {
+                LogHelper::write("No processing logic for target: $target", 'moota');
             }
         }
-    }
-
-    /**
-     * Menulis log ke file
-     */
-    private function write($text)
-    {
-        $assets_dir = "logs/moota/" . date('Y/') . date('m/');
-        $file_name = date('d') . ".log";
-        $data_to_write = date('Y-m-d H:i:s') . " " . $text . "\n";
-        $file_path = $assets_dir . $file_name;
-
-        if (!file_exists($assets_dir)) {
-            mkdir($assets_dir, 0777, TRUE);
-        }
-
-        $file_handle = fopen($file_path, 'a');
-        fwrite($file_handle, $data_to_write);
-        fclose($file_handle);
     }
 
     /**

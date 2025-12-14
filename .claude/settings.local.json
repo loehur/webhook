@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dir /b \"c:\\xampp82\\htdocs\\pribadi\\webhook\\app\")"
+    ]
+  }
+}
