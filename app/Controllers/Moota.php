@@ -15,6 +15,11 @@ class Moota extends Controller
      */
     public function update()
     {
+        // Enable error logging
+        ini_set('display_errors', 0);
+        ini_set('log_errors', 1);
+        ini_set('error_log', 'logs/moota/' . date('Y/m/') . date('d') . '_php_errors.log');
+
         header('Content-Type: application/json; charset=utf-8');
 
         $json = file_get_contents('php://input');
@@ -119,12 +124,16 @@ class Moota extends Controller
                 }
                 LogHelper::write("DB Instance 2000 obtained.", 'moota');
 
-                //Cek data state != PAID di wh_moota 
+                //Cek data state != PAID di wh_moota
+                LogHelper::write("Querying wh_moota for bank_id: $bank_id, amount: $amount, state: PENDING", 'moota');
+
                 $cek_pending_query = $db_instance->get_where("wh_moota", [
                     "bank_id" => $bank_id,
                     "amount" => $amount,
                     "state" => "PENDING"
                 ]);
+
+                LogHelper::write("Query executed successfully", 'moota');
 
                 if (!$cek_pending_query) {
                     LogHelper::write("Error: Query object is null after get_where for pending check", 'moota');
@@ -188,6 +197,12 @@ class Moota extends Controller
                 LogHelper::write("Pending record check passed for bank_id: $bank_id, amount: $amount", 'moota');
             } catch (Exception $e) {
                 LogHelper::write("Exception during pending record check: " . $e->getMessage(), 'moota');
+                LogHelper::write("Exception trace: " . $e->getTraceAsString(), 'moota');
+                $error_count++;
+                continue;
+            } catch (Error $e) {
+                LogHelper::write("Error during pending record check: " . $e->getMessage(), 'moota');
+                LogHelper::write("Error trace: " . $e->getTraceAsString(), 'moota');
                 $error_count++;
                 continue;
             }

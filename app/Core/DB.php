@@ -261,7 +261,15 @@ class DB extends DBC
         }
         return $rows;
     }
-    
+
+    public function num_rows()
+    {
+        if ($this->query_result) {
+            return $this->query_result->num_rows;
+        }
+        return 0;
+    }
+
     // Internal Helper
     private function reset_qb()
     {
