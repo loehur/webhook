@@ -6,7 +6,7 @@ class DB extends DBC
     private static $_instance = [];
     private $mysqli;
     private $query_result;
-    
+
     // Query Builder Props
     private $qb_table = "";
     private $qb_where = [];
@@ -19,13 +19,13 @@ class DB extends DBC
         $db_name = DBC::dbm[$db]['db'];
         $db_user = DBC::dbm[$db]['user'];
         $db_pass = DBC::dbm[$db]['pass'];
-        
+
         $this->mysqli = new mysqli(DBC::db_host, $db_user, $db_pass, $db_name);
-        
+
         if ($this->mysqli->connect_error) {
             die('Connect Error (' . $this->mysqli->connect_errno . ') ' . $this->mysqli->connect_error);
         }
-        
+
         $this->mysqli->set_charset("utf8mb4");
     }
 
@@ -36,7 +36,7 @@ class DB extends DBC
         }
         return self::$_instance[$db];
     }
-    
+
     /**
      * Raw Query with Optional Params (Prepared Statement)
      * Usage: $this->db()->query("SELECT * FROM table WHERE id = ?", [1]);
@@ -44,31 +44,31 @@ class DB extends DBC
     public function query($sql, $params = [])
     {
         $this->reset_qb(); // Clear builder state on raw query
-        
+
         $stmt = $this->mysqli->prepare($sql);
-        
+
         if (!$stmt) {
-             throw new Exception("Prepare failed: " . $this->mysqli->error);
+            throw new Exception("Prepare failed: " . $this->mysqli->error);
         }
 
         if (!empty($params)) {
-             $types = "";
-             forEach($params as $param) {
-                 if (is_int($param)) $types .= "i";
-                 elseif (is_float($param)) $types .= "d";
-                 else $types .= "s";
-             }
-             $stmt->bind_param($types, ...$params);
+            $types = "";
+            foreach ($params as $param) {
+                if (is_int($param)) $types .= "i";
+                elseif (is_float($param)) $types .= "d";
+                else $types .= "s";
+            }
+            $stmt->bind_param($types, ...$params);
         }
-        
+
         if (!$stmt->execute()) {
             throw new Exception("Execute failed: " . $stmt->error);
         }
-        
+
         $this->query_result = $stmt->get_result();
         // If query was INSERT/UPDATE/DELETE, get_result returns false, which is fine
         // We can capture affected_rows or insert_id here if needed but for now we focus on SELECT compatibility
-        
+
         return $this; // Return self for chaining result methods
     }
     
@@ -82,7 +82,7 @@ class DB extends DBC
     {
         $this->reset_qb();
         $this->qb_table = $table;
-        
+
         $sql = "SELECT * FROM " . $table;
         $params = [];
         $types = "";
@@ -93,10 +93,10 @@ class DB extends DBC
                 // Determine operator
                 $op = "=";
                 // Basic support for "key !=" => val syntax could be added, but keeping simple for now: "key" => val
-                
+
                 $clauses[] = "$key = ?";
                 $params[] = $val;
-                
+
                 if (is_int($val)) $types .= "i";
                 elseif (is_float($val)) $types .= "d";
                 else $types .= "s";
@@ -109,17 +109,17 @@ class DB extends DBC
             $params[] = $limit;
             $types .= "i";
         }
-        
+
         $stmt = $this->mysqli->prepare($sql);
         if (!$stmt) throw new Exception("DB Error: " . $this->mysqli->error);
-        
+
         if (!empty($params)) {
             $stmt->bind_param($types, ...$params);
         }
-        
+
         $stmt->execute();
         $this->query_result = $stmt->get_result();
-        
+
         return $this;
     }
 
@@ -132,31 +132,31 @@ class DB extends DBC
         // $data must be associative array
         $cols = array_keys($data);
         $vals = array_values($data);
-        
+
         $placeholders = array_fill(0, count($cols), "?");
-        
+
         $sql = "INSERT INTO $table (" . implode(", ", $cols) . ") VALUES (" . implode(", ", $placeholders) . ")";
-        
+
         $types = "";
         foreach ($vals as $val) {
-             if (is_int($val)) $types .= "i";
-             elseif (is_float($val)) $types .= "d";
-             else $types .= "s";
+            if (is_int($val)) $types .= "i";
+            elseif (is_float($val)) $types .= "d";
+            else $types .= "s";
         }
-        
+
         $stmt = $this->mysqli->prepare($sql);
         if (!$stmt) return false;
-        
+
         $stmt->bind_param($types, ...$vals);
-        
+
         if ($stmt->execute()) {
             return $this->mysqli->insert_id;
         } else {
             return false;
         }
     }
-    
-     /**
+
+    /**
      * Update
      * Usage: update('table', ['col' => 'newval'], ['id' => 1])
      */
@@ -165,35 +165,77 @@ class DB extends DBC
         $set_clauses = [];
         $params = [];
         $types = "";
-        
+
         foreach ($data as $key => $val) {
             $set_clauses[] = "$key = ?";
             $params[] = $val;
             if (is_int($val)) $types .= "i";
-             elseif (is_float($val)) $types .= "d";
-             else $types .= "s";
+            elseif (is_float($val)) $types .= "d";
+            else $types .= "s";
         }
-        
+
         // Where clauses
         $where_clauses = [];
         foreach ($where as $key => $val) {
             $where_clauses[] = "$key = ?";
             $params[] = $val;
-             if (is_int($val)) $types .= "i";
-             elseif (is_float($val)) $types .= "d";
-             else $types .= "s";
+            if (is_int($val)) $types .= "i";
+            elseif (is_float($val)) $types .= "d";
+            else $types .= "s";
         }
-        
+
         $sql = "UPDATE $table SET " . implode(", ", $set_clauses) . " WHERE " . implode(" AND ", $where_clauses);
-        
+
         $stmt = $this->mysqli->prepare($sql);
         if (!$stmt) return false;
-        
+
         $stmt->bind_param($types, ...$params);
-        
+
         return $stmt->execute();
     }
-    
+
+    /**
+     * Update with Limit
+     * Usage: update_limit('table', ['col' => 'newval'], ['id' => 1], 5)
+     */
+    public function update_limit($table, $data, $where, $limit = 1)
+    {
+        $set_clauses = [];
+        $params = [];
+        $types = "";
+
+        foreach ($data as $key => $val) {
+            $set_clauses[] = "$key = ?";
+            $params[] = $val;
+            if (is_int($val)) $types .= "i";
+            elseif (is_float($val)) $types .= "d";
+            else $types .= "s";
+        }
+
+        // Where clauses
+        $where_clauses = [];
+        foreach ($where as $key => $val) {
+            $where_clauses[] = "$key = ?";
+            $params[] = $val;
+            if (is_int($val)) $types .= "i";
+            elseif (is_float($val)) $types .= "d";
+            else $types .= "s";
+        }
+
+        $sql = "UPDATE $table SET " . implode(", ", $set_clauses) . " WHERE " . implode(" AND ", $where_clauses) . " LIMIT ?";
+
+        // Add limit to params
+        $params[] = $limit;
+        $types .= "i";
+
+        $stmt = $this->mysqli->prepare($sql);
+        if (!$stmt) return false;
+
+        $stmt->bind_param($types, ...$params);
+
+        return $stmt->execute();
+    }
+
     /**
      * Delete
      * Usage: delete('table', ['id' => 1])
@@ -203,22 +245,54 @@ class DB extends DBC
         $where_clauses = [];
         $params = [];
         $types = "";
-        
+
         foreach ($where as $key => $val) {
             $where_clauses[] = "$key = ?";
             $params[] = $val;
-             if (is_int($val)) $types .= "i";
-             elseif (is_float($val)) $types .= "d";
-             else $types .= "s";
+            if (is_int($val)) $types .= "i";
+            elseif (is_float($val)) $types .= "d";
+            else $types .= "s";
         }
-        
+
         $sql = "DELETE FROM $table WHERE " . implode(" AND ", $where_clauses);
-        
+
         $stmt = $this->mysqli->prepare($sql);
         if (!$stmt) return false;
-        
+
         $stmt->bind_param($types, ...$params);
-        
+
+        return $stmt->execute();
+    }
+
+    /**
+     * Delete with Limit
+     * Usage: delete_limit('table', ['id' => 1], 5)
+     */
+    public function delete_limit($table, $where, $limit = 1)
+    {
+        $where_clauses = [];
+        $params = [];
+        $types = "";
+
+        foreach ($where as $key => $val) {
+            $where_clauses[] = "$key = ?";
+            $params[] = $val;
+            if (is_int($val)) $types .= "i";
+            elseif (is_float($val)) $types .= "d";
+            else $types .= "s";
+        }
+
+        $sql = "DELETE FROM $table WHERE " . implode(" AND ", $where_clauses) . " LIMIT ?";
+
+        // Add limit to params
+        $params[] = $limit;
+        $types .= "i";
+
+        $stmt = $this->mysqli->prepare($sql);
+        if (!$stmt) return false;
+
+        $stmt->bind_param($types, ...$params);
+
         return $stmt->execute();
     }
 
@@ -231,7 +305,7 @@ class DB extends DBC
         }
         return null;
     }
-    
+
     public function row_array()
     {
         if ($this->query_result) {
@@ -250,7 +324,7 @@ class DB extends DBC
         }
         return $rows;
     }
-    
+
     public function result_array()
     {
         $rows = [];
@@ -279,9 +353,10 @@ class DB extends DBC
         $this->qb_types = "";
         $this->query_result = null;
     }
-    
+
     // Helper to get raw connection if needed
-    public function conn() {
+    public function conn()
+    {
         return $this->mysqli;
     }
 }

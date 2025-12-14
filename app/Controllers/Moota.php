@@ -95,7 +95,7 @@ class Moota extends Controller
 
             LogHelper::write("--- Processing mutation index: $index ---", 'moota');
 
-            if (isset($mutation['amount']) && isset($mutation['type']) && isset($mutation['bank_id'])) {
+            if (isset($mutation['amount']) && isset($mutation['type']) && isset($mutation['bank_id']) && isset($mutation['mutation_id'])) {
                 LogHelper::write("Mutation Amount: " . $mutation['amount'], 'moota');
                 LogHelper::write("Mutation Type: " . $mutation['type'], 'moota');
                 LogHelper::write("Mutation Bank ID: " . $mutation['bank_id'], 'moota');
@@ -108,9 +108,52 @@ class Moota extends Controller
             $amount = $mutation['amount'];
             $type = $mutation['type'];
             $bank_id = $mutation['bank_id'];
+            $mutation_id = $mutation['mutation_id'];
 
             if ($type !== 'CR') {
                 LogHelper::write("Skip: Mutation type is not 'CR' in index $index", 'moota');
+                continue;
+            }
+
+            //cek sudah ada mutation_id di wh_moota
+            try {
+                $db_instance = $this->db(2000);
+                if (!$db_instance) {
+                    LogHelper::write("Error: Failed to get DB instance 2000", 'moota');
+                    $error_count++;
+                    continue;
+                }
+                LogHelper::write("DB Instance 2000 obtained.", 'moota');
+                LogHelper::write("Querying wh_moota for existing mutation_id: $mutation_id", 'moota');
+
+                $cek_existing_query = $db_instance->get_where("wh_moota", [
+                    "mutation_id" => $mutation_id
+                ]);
+
+                LogHelper::write("Query executed successfully", 'moota');
+
+                if (!$cek_existing_query) {
+                    LogHelper::write("Error: Query object is null after get_where for existing mutation_id check", 'moota');
+                    $error_count++;
+                    continue;
+                }
+
+                $existing_count = $cek_existing_query->num_rows();
+
+                if ($existing_count > 0) {
+                    LogHelper::write("Skip: Mutation ID $mutation_id already processed, found $existing_count records", 'moota');
+                    continue;
+                }
+                LogHelper::write("No existing record found for mutation_id: $mutation_id", 'moota');
+            } catch (Exception $e) {
+                LogHelper::write("Exception during existing mutation_id check: " . $e->getMessage(), 'moota');
+                LogHelper::write("Exception trace: " . $e->getTraceAsString(), 'moota');
+                $error_count++;
+                continue;
+            } catch (Error $e) {
+                LogHelper::write("Error during existing mutation_id check: " . $e->getMessage(), 'moota');
+                LogHelper::write("Error trace: " . $e->getTraceAsString(), 'moota');
+                $error_count++;
                 continue;
             }
 
@@ -130,7 +173,6 @@ class Moota extends Controller
                 $cek_pending_query = $db_instance->get_where("wh_moota", [
                     "bank_id" => $bank_id,
                     "amount" => $amount,
-                    "state" => "PENDING"
                 ]);
 
                 LogHelper::write("Query executed successfully", 'moota');
@@ -143,20 +185,48 @@ class Moota extends Controller
 
                 $pending_count = $cek_pending_query->num_rows();
 
-                if ($pending_count != 1) {
-                    LogHelper::write("Skip: Expected 1 pending record, found $pending_count for bank_id: $bank_id, amount: $amount", 'moota');
-
-                    $update_conflict = $db_instance->update(
+                if ($pending_count == 1) {
+                    LogHelper::write("Pending record found for bank_id: $bank_id, amount: $amount", 'moota');
+                    //udpate state jadi paid
+                    $update = $db_instance->update(
                         "wh_moota",
                         [
-                            "conflict" => 1,
-                            "updated_at" => date('Y-m-d H:i:s')
+                            "state" => 'paid',
+                            "mutation_id" => $mutation_id,
                         ],
                         [
                             "bank_id" => $bank_id,
                             "amount" => $amount,
-                            "state" => "PENDING"
-                        ]
+                            "state !=" => 'paid',
+                        ],
+                    );
+
+                    if ($update) {
+                        LogHelper::write("Updated state to paid for bank_id: $bank_id, amount: $amount", 'moota');
+                        //UPDATE KAS JADI STATUS_MUTASI 3 DENGAN REF_FINANCE DARI wh_moota
+                        $pending_record = $cek_pending_query->row();
+                        $this->processTarget($pending_record, $pending_record->trx_id);
+                    } else {
+                        LogHelper::write("Failed to update state to paid for bank_id: $bank_id, amount: $amount", 'moota');
+                        $error_count++;
+                        continue;
+                    }
+                } elseif ($pending_count > 1) {
+                    LogHelper::write("Skip: Expected 1 pending record, found $pending_count for bank_id: $bank_id, amount: $amount", 'moota');
+
+                    $update_conflict = $db_instance->update_limit(
+                        "wh_moota",
+                        [
+                            "state" => 'paid_waiting',
+                            "updated_at" => date('Y-m-d H:i:s'),
+                            "mutation_id" => $mutation_id,
+                        ],
+                        [
+                            "bank_id" => $bank_id,
+                            "amount" => $amount,
+                            "state !=" => 'paid',
+                        ],
+                        1
                     );
 
                     if ($update_conflict) {
@@ -166,33 +236,52 @@ class Moota extends Controller
                         $error_count++;
                     }
 
-                    continue;
-                } else {
-                    LogHelper::write("Pending record found for bank_id: $bank_id, amount: $amount", 'moota');
-                    //UPDATE STATE PENDING JADI PAID
-                    $update = $db_instance->update(
-                        "wh_moota",
-                        [
-                            "state" => "PAID",
-                            "updated_at" => date('Y-m-d H:i:s')
-                        ],
-                        [
+                    // cek sisa yang belum paid_waiting
+                    $remaining_query = $db_instance->get_where("wh_moota", [
+                        "bank_id" => $bank_id,
+                        "amount" => $amount,
+                        "state !=" => 'paid_waiting',
+                    ]);
+                    $remaining_count = $remaining_query->num_rows();
+                    if ($remaining_count == 0) {
+                        LogHelper::write("All conflicting records resolved for bank_id: $bank_id, amount: $amount", 'moota');
+                        // update semua kas dengan trx id yang paid_waiting jadi status_mutasi 3
+                        $conflict_records = $db_instance->get_where("wh_moota", [
                             "bank_id" => $bank_id,
                             "amount" => $amount,
-                            "state" => "PENDING"
-                        ]
-                    );
-
-                    if ($update) {
-                        LogHelper::write("Updated state to PAID for bank_id: $bank_id, amount: $amount", 'moota');
-                        //UPDATE KAS JADI STATUS_MUTASI 3 DENGAN REF_FINANCE DARI wh_moota
-                        $pending_record = $cek_pending_query->row();
-                        $this->processTarget($pending_record, 'PAID', $pending_record->trx_id);
+                            "state" => 'paid_waiting',
+                        ])->result();
+                        foreach ($conflict_records as $conflict_record) {
+                            $update_kas = $this->processTarget($conflict_record, $conflict_record->trx_id);
+                            if ($update_kas !== false) {
+                                // update state jadi paid
+                                $update_final = $db_instance->update(
+                                    "wh_moota",
+                                    [
+                                        "state" => 'paid',
+                                    ],
+                                    [
+                                        "id" => $conflict_record->id,
+                                    ]
+                                );
+                                if ($update_final) {
+                                    LogHelper::write("Finalized conflicting record ID: " . $conflict_record->id . " to paid", 'moota');
+                                } else {
+                                    LogHelper::write("Failed to finalize conflicting record ID: " . $conflict_record->id, 'moota');
+                                }
+                            } else {
+                                LogHelper::write("Failed to process target for conflicting record ID: " . $conflict_record->id, 'moota');
+                            }
+                        }
                     } else {
-                        LogHelper::write("Failed to update state to PAID for bank_id: $bank_id, amount: $amount", 'moota');
-                        $error_count++;
-                        continue;
+                        LogHelper::write("Remaining conflicting records: $remaining_count for bank_id: $bank_id, amount: $amount", 'moota');
                     }
+
+
+                    continue;
+                } else {
+                    LogHelper::write("No pending record found for bank_id: $bank_id, amount: $amount", 'moota');
+                    $error_count++;
                 }
                 LogHelper::write("Pending record check passed for bank_id: $bank_id, amount: $amount", 'moota');
             } catch (Exception $e) {
@@ -225,7 +314,7 @@ class Moota extends Controller
     /**
      * Proses target tertentu berdasarkan data dari wh_moota
      */
-    private function processTarget($record, $status, $order_id)
+    private function processTarget($record, $order_id)
     {
         // Jika ada field target, proses sesuai target
         if (isset($record->target) && isset($record->book)) {
@@ -235,13 +324,6 @@ class Moota extends Controller
             LogHelper::write("Processing target: $target, book: $book", 'moota');
 
             if ($target == "kas_laundry") {
-                // Hanya update kas_laundry jika status sukses
-                $status_lower = strtolower($status);
-                if (!in_array($status_lower, ['success', 'completed', 'paid'])) {
-                    LogHelper::write("Skip: Status '$status' bukan status sukses, tidak update kas_laundry", 'moota');
-                    return;
-                }
-
                 $i = 2021;
                 while ($i <= $book) {
                     $db_target_name = "1" . $i;
@@ -263,17 +345,22 @@ class Moota extends Controller
                         );
 
                         if (!$update) {
+                            return false;
                             LogHelper::write("Error: Failed to update kas. Order ID: $order_id", 'moota');
                         } else {
                             LogHelper::write("Success: Updated kas status_mutasi to 3 for Order ID: $order_id", 'moota');
                         }
                     } catch (Exception $e) {
+                        return false;
                         LogHelper::write("Exception during kas Update: " . $e->getMessage(), 'moota');
                     }
                 }
             } else {
                 LogHelper::write("No processing logic for target: $target", 'moota');
             }
+        } else {
+            LogHelper::write("No target or book field in record, skipping processTarget", 'moota');
+            return false;
         }
     }
 
