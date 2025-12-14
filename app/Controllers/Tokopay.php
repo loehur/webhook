@@ -67,6 +67,13 @@ class Tokopay extends Controller
                 }
                 LogHelper::write("DB Instance 2000 obtained.", 'tokopay');
 
+                $update_wh = $db_instance->update("wh_tokopay", ["state" => $status], ["ref_id" => $reff_id]);
+                if (!$update_wh) {
+                    LogHelper::write("Error: Failed to update wh_tokopay for Ref ID: $reff_id", 'tokopay');
+                } else {
+                    LogHelper::write("wh_tokopay updated successfully for Ref ID: $reff_id", 'tokopay');
+                }
+
                 $cek_target_query = $db_instance->get_where("wh_tokopay", ["ref_id" => $reff_id]);
                 if (!$cek_target_query) {
                     LogHelper::write("Error: Query object is null after get_where", 'tokopay');

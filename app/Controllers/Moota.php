@@ -119,6 +119,7 @@ class Moota extends Controller
                 }
                 LogHelper::write("DB Instance 2000 obtained.", 'moota');
 
+                //Cek data state != PAID di wh_moota 
                 $cek_pending_query = $db_instance->get_where("wh_moota", [
                     "bank_id" => $bank_id,
                     "amount" => $amount,
