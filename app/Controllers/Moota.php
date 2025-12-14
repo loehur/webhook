@@ -123,20 +123,10 @@ class Moota extends Controller
                     $error_count++;
                     continue;
                 }
-                LogHelper::write("DB Instance 2000 obtained.", 'moota');
-                LogHelper::write("Querying wh_moota for existing mutation_id: $mutation_id", 'moota');
 
                 $cek_existing_query = $db_instance->get_where("wh_moota", [
                     "mutation_id" => $mutation_id
                 ]);
-
-                LogHelper::write("Query executed successfully", 'moota');
-
-                if (!$cek_existing_query) {
-                    LogHelper::write("Error: Query object is null after get_where for existing mutation_id check", 'moota');
-                    $error_count++;
-                    continue;
-                }
 
                 $existing_count = $cek_existing_query->num_rows();
 
@@ -157,22 +147,12 @@ class Moota extends Controller
                 continue;
             }
 
-            //PASTIKAN BANK ID, NOMINAL, DAN STATE PENDING ADA DAN HANYA ADA SATU DI WH MOOTA
+            //cek wh_moota dengan bank_id, amount, state != paid
             try {
-                $db_instance = $this->db(2000);
-                if (!$db_instance) {
-                    LogHelper::write("Error: Failed to get DB instance 2000", 'moota');
-                    $error_count++;
-                    continue;
-                }
-                LogHelper::write("DB Instance 2000 obtained.", 'moota');
-
-                //Cek data state != PAID di wh_moota
-                LogHelper::write("Querying wh_moota for bank_id: $bank_id, amount: $amount, state: PENDING", 'moota');
-
                 $cek_pending_query = $db_instance->get_where("wh_moota", [
                     "bank_id" => $bank_id,
                     "amount" => $amount,
+                    "state !=" => 'paid',
                 ]);
 
                 LogHelper::write("Query executed successfully", 'moota');
@@ -218,13 +198,12 @@ class Moota extends Controller
                         "wh_moota",
                         [
                             "state" => 'paid_waiting',
-                            "updated_at" => date('Y-m-d H:i:s'),
                             "mutation_id" => $mutation_id,
                         ],
                         [
                             "bank_id" => $bank_id,
                             "amount" => $amount,
-                            "state !=" => 'paid',
+                            "state !=" => 'paid_waiting',
                         ],
                         1
                     );
